@@ -10,6 +10,7 @@ Ce projet est un bot d'échecs basé sur l'apprentissage par renforcement (Deep 
 *   `src/main.py`: Point d'entrée pour lancer l'application GUI.
 *   `src/trainer.py`: Script pour l'entraînement "headless" (sans interface graphique), idéal pour les serveurs.
 *   `src/server.py`: Serveur API (FastAPI) pour exposer le bot en tant que service Web.
+*   `Dockerfile`: Configuration pour créer un conteneur Docker prêt pour la production.
 
 ## Installation
 
@@ -50,7 +51,7 @@ python src/trainer.py --games 1000
 *   Le modèle est sauvegardé automatiquement dans `chess_model.pth`.
 *   Un graphique de progression (`training_graph.png`) est généré à la fin.
 
-### 3. API Serveur (Déploiement)
+### 3. API Serveur (Déploiement Local)
 
 Pour utiliser le bot via une API HTTP (par exemple pour le connecter à une interface Web externe).
 
@@ -75,6 +76,29 @@ Le serveur démarre sur `http://0.0.0.0:8000`.
       "move": "e2e4"
     }
     ```
+
+## Déploiement avec Docker
+
+Docker permet d'emballer l'application et ses dépendances pour qu'elle tourne de la même manière partout (serveurs, cloud, etc.).
+
+**1. Construire l'image Docker**
+
+À la racine du projet :
+
+```bash
+docker build -t chess-bot .
+```
+
+**2. Lancer le conteneur**
+
+```bash
+docker run -d -p 8000:8000 chess-bot
+```
+
+L'API sera accessible sur `http://localhost:8000`.
+
+**Déploiement Cloud (Exemple : Render, Railway, etc.)**
+La plupart des plateformes PaaS détectent automatiquement le fichier `Dockerfile`. Connectez simplement votre dépôt Git à la plateforme, et elle déploiera l'API automatiquement.
 
 ## Modèle
 

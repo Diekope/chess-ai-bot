@@ -1,0 +1,23 @@
+# Ignore git files
+.git
+.gitignore
+
+# Ignore python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore build artifacts
+build
+dist
+*.egg-info
+
+# Ignore virtual environments
+venv
+env
+.env
+
+# Ignore large training artifacts we might not want in the slim production image
+# (Note: We usually keep chess_model.pth so the bot has a brain, but ignore graphs)
+*.png
