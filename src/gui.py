@@ -5,6 +5,16 @@ from game_logic import ChessGame
 from agent import Agent
 import threading
 import time
+import os
+
+# Import Matplotlib de manière sécurisée
+try:
+    import matplotlib
+    matplotlib.use('Agg') # Backend non-interactif pour éviter les crashs GUI
+    import matplotlib.pyplot as plt
+    HAS_MATPLOTLIB = True
+except ImportError:
+    HAS_MATPLOTLIB = False
 
 class ChessGUI:
     def __init__(self, root):
@@ -43,7 +53,7 @@ class ChessGUI:
 
         # Option Turbo
         self.turbo_mode = tk.BooleanVar(value=False)
-        tk.Checkbutton(self.btn_frame, text="Mode Turbo (Pas de visuel)", variable=self.turbo_mode).pack(side=tk.LEFT, padx=5)
+        tk.Checkbutton(self.btn_frame, text="Mode Turbo", variable=self.turbo_mode).pack(side=tk.LEFT, padx=5)
 
         tk.Label(self.btn_frame, text="Runs:").pack(side=tk.LEFT, padx=2)
         self.runs_entry = tk.Entry(self.btn_frame, width=5)
@@ -183,6 +193,39 @@ class ChessGUI:
 
         threading.Thread(target=self.train_loop, args=(n_games,), daemon=True).start()
 
+    def plot_training_results(self):
+        if not HAS_MATPLOTLIB:
+            print("Matplotlib manquant: impossible de générer le graphique.")
+            return None
+
+        try:
+            history = self.bot.elo_history
+            if not history or len(history) < 2: 
+                return None
+
+            plt.figure(figsize=(10, 5))
+            plt.plot(history, color='blue', linewidth=2, label='ELO')
+            
+            # Ajout d'une moyenne mobile pour lisser la courbe si beaucoup de points
+            if len(history) > 50:
+                window = 50
+                moving_avg = [sum(history[max(0, i-window):i+1])/len(history[max(0, i-window):i+1]) for i in range(len(history))]
+                plt.plot(moving_avg, color='red', linestyle='dashed', label='Moyenne (50)')
+
+            plt.title(f"Progression de l'Apprentissage (ELO Actuel: {self.bot.elo})")
+            plt.xlabel("Parties Jouées")
+            plt.ylabel("Score ELO Estimé")
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+            
+            filename = f"training_graph.png"
+            plt.savefig(filename)
+            plt.close()
+            return filename
+        except Exception as e:
+            print(f"Erreur graphique: {e}")
+            return None
+
     def train_loop(self, n_games):
         print(f"Début entraînement ({'Turbo' if self.turbo_mode.get() else 'Normal'}) pour {n_games} parties...")
         white_bot = Agent(color=True) 
@@ -197,7 +240,6 @@ class ChessGUI:
             while not temp_game.board.is_game_over() and move_count < 150:
                 move_count += 1
                 
-                # --- Tour Blanc ---
                 m1 = white_bot.select_move(temp_game)
                 if m1 is None: break
                 s1 = temp_game.get_state()
@@ -211,7 +253,6 @@ class ChessGUI:
                 white_bot.train_step(s1, r1, temp_game.get_state(), done1)
                 if temp_game.board.is_game_over(): break
                 
-                # --- Tour Noir ---
                 m2 = self.bot.select_move(temp_game) 
                 if m2 is None: break
                 s2 = temp_game.get_state()
@@ -242,18 +283,27 @@ class ChessGUI:
             
             self.bot.update_adaptive_epsilon(result)
             
-            # En mode turbo, on met à jour l'interface seulement toutes les 10 parties pour aller vite
             if not is_turbo or i % 10 == 0:
                 self.root.after(0, self.update_stats_label)
             
         print("Entraînement fini.")
         self.bot.save_model() 
+        
+        # Génération du graphique
+        graph_file = self.plot_training_results()
+        
         self.root.after(0, lambda: self.status_label.config(text="Prêt à jouer (Modèle Sauvegardé)."))
         self.root.after(0, self.draw_board)
         self.root.after(0, self.enable_buttons)
-        self.root.after(0, self.update_stats_label) # Maj finale
-        self.root.after(0, lambda: messagebox.showinfo("Entraînement Terminé", f"L'entraînement de {n_games} parties est terminé !\nELO final: {self.bot.elo}"))
-
+        self.root.after(0, self.update_stats_label)
+        
+        msg = f"L'entraînement de {n_games} parties est terminé !\nELO final: {self.bot.elo}"
+        if graph_file:
+            msg += f"\n\nGraphique sauvegardé sous :\n{graph_file}"
+        elif not HAS_MATPLOTLIB:
+            msg += "\n\n(Installez 'matplotlib' pour avoir le graphique)"
+            
+        self.root.after(0, lambda: messagebox.showinfo("Entraînement Terminé", msg))
 
     def enable_buttons(self):
         for child in self.btn_frame.winfo_children():

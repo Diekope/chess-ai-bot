@@ -4,6 +4,7 @@ import torch.optim as optim
 import numpy as np
 import random
 import os
+from collections import deque
 
 class ChessNet(nn.Module):
     def __init__(self):
@@ -36,7 +37,7 @@ class Agent:
             self.device = torch.device("cpu")
             print("⚙️ Mode CPU Standard")
 
-        self.net = ChessNet().to(self.device) # On envoie le réseau sur le GPU
+        self.net = ChessNet().to(self.device) 
         self.optimizer = optim.Adam(self.net.parameters(), lr=0.001)
         self.loss_fn = nn.MSELoss()
         self.color = color 
@@ -46,6 +47,11 @@ class Agent:
         self.stats = {"wins": 0, "draws": 0, "losses": 0} 
         self.games_since_last_win = 0 
         self.elo = 400 
+        self.elo_history = [400] # Historique pour le graphique
+        
+        # EXPERIENCE REPLAY (Mémoire tampon)
+        self.memory = deque(maxlen=2000) # Garde les 2000 derniers coups
+        self.batch_size = 64 # Apprend par paquet de 64
         
         self.load_model()
 
@@ -65,11 +71,10 @@ class Agent:
         for move in legal_moves:
             game.board.push(move)
             state = game.get_state()
-            # Envoi du tenseur sur le GPU
             state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
             
             with torch.no_grad():
-                value = self.net(state_tensor).item() # .item() ramène la valeur sur le CPU pour la comparaison
+                value = self.net(state_tensor).item() 
             
             game.board.pop()
 
@@ -85,18 +90,33 @@ class Agent:
         return best_move if best_move else random.choice(legal_moves)
 
     def train_step(self, state, reward, next_state, done):
+        # 1. On stocke l'expérience
+        # On garde les arrays numpy pour économiser la VRAM du GPU en attendant le batch
+        self.memory.append((state, reward, next_state, done))
+        
+        # 2. On apprend seulement si on a assez de données
+        if len(self.memory) < self.batch_size:
+            return
+
+        # 3. Création du Batch (Échantillonnage aléatoire)
+        batch = random.sample(self.memory, self.batch_size)
+        
+        states, rewards, next_states, dones = zip(*batch)
+        
+        # Conversion en tenseurs GPU par lots (Beaucoup plus efficace)
+        state_tensor = torch.FloatTensor(np.array(states)).to(self.device)
+        next_state_tensor = torch.FloatTensor(np.array(next_states)).to(self.device)
+        reward_tensor = torch.FloatTensor(rewards).unsqueeze(1).to(self.device)
+        done_tensor = torch.FloatTensor(dones).unsqueeze(1).to(self.device)
+
         self.optimizer.zero_grad()
         
-        # Envoi des données sur le GPU
-        state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
-        next_state_tensor = torch.FloatTensor(next_state).unsqueeze(0).to(self.device)
-        
-        reward_tensor = torch.tensor([[reward]], dtype=torch.float32).to(self.device)
-
-        target = reward_tensor
-        if not done:
-            with torch.no_grad():
-                target = reward_tensor + self.gamma * self.net(next_state_tensor)
+        # Target DQN: R + gamma * Q(s', a') * (1 - done)
+        with torch.no_grad():
+            # Le max n'est pas nécessaire ici car notre réseau prédit la valeur de l'état, pas de l'action
+            # C'est une approximation Value Network
+            target_prediction = self.net(next_state_tensor)
+            target = reward_tensor + (self.gamma * target_prediction * (1 - done_tensor))
         
         prediction = self.net(state_tensor)
         loss = self.loss_fn(prediction, target)
@@ -121,9 +141,10 @@ class Agent:
                 self.epsilon *= 0.9999
         
         if self.elo < 100: self.elo = 100
+        self.elo_history.append(self.elo) # Sauvegarde l'historique
         
         if self.games_since_last_win > 100 and self.epsilon < 0.5:
-            # print("⚠️ STAGNATION DETECTÉE") # Commenté pour réduire le bruit en turbo
+            # print("⚠️ STAGNATION DETECTÉE") 
             self.epsilon = 0.5
             self.games_since_last_win = 0 
 
@@ -135,9 +156,10 @@ class Agent:
             'epsilon': self.epsilon,
             'stats': self.stats,
             'games_since_last_win': self.games_since_last_win,
-            'elo': self.elo
+            'elo': self.elo,
+            'elo_history': self.elo_history
         }, self.model_path)
-        self.net.to(self.device) # On renvoie sur le GPU après sauvegarde
+        self.net.to(self.device) 
         print(f"Modèle sauvegardé. Epsilon={self.epsilon:.4f}, ELO={self.elo}")
 
     def load_model(self):
@@ -150,6 +172,7 @@ class Agent:
                 self.stats = checkpoint.get('stats', {"wins": 0, "draws": 0, "losses": 0})
                 self.games_since_last_win = checkpoint.get('games_since_last_win', 0)
                 self.elo = checkpoint.get('elo', 400)
+                self.elo_history = checkpoint.get('elo_history', [400])
                 print(f"Modèle chargé sur {self.device} ! ELO: {self.elo}")
             except Exception as e:
                 print(f"Erreur chargement modèle: {e}")
@@ -167,4 +190,6 @@ class Agent:
         self.stats = {"wins": 0, "draws": 0, "losses": 0}
         self.games_since_last_win = 0
         self.elo = 400
+        self.elo_history = [400]
+        self.memory.clear() 
         print("Modèle réinitialisé.")
