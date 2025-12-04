@@ -12,6 +12,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copier tout le reste du projet (code source, modèle, etc.)
 COPY . .
 
+# Ajouter src au PYTHONPATH pour que les imports fonctionnent correctement
+ENV PYTHONPATH=/app/src
+
 # Exposer le port 8000 (celui de FastAPI)
 EXPOSE 8000
 
